@@ -13,7 +13,7 @@ sys_exit(void)
   int n;
   argint(0, &n);
   kexit(n);
-  return 0; // not reached
+  return 0;  // not reached
 }
 
 uint64
@@ -46,15 +46,10 @@ sys_sbrk(void)
   argint(0, &n);
   argint(1, &t);
   addr = myproc()->sz;
-
   if (t == SBRK_EAGER || n < 0) {
-    if (growproc(n) < 0) {
+    if(growproc(n) < 0)
       return -1;
-    }
   } else {
-    // Lazily allocate memory for this process: increase its memory
-    // size but don't allocate memory. If the processes uses the
-    // memory, vmfault() will allocate it.
     if (addr + n < addr)
       return -1;
     if (addr + n > TRAPFRAME)
@@ -65,7 +60,26 @@ sys_sbrk(void)
 }
 
 uint64
-sys_pause(void)
+sys_kill(void)
+{
+  int pid;
+  argint(0, &pid);
+  return kkill(pid);
+}
+
+uint64
+sys_uptime(void)
+{
+  uint xticks;
+
+  acquire(&tickslock);
+  xticks = ticks;
+  release(&tickslock);
+  return xticks;
+}
+
+uint64
+sys_sleep(void)
 {
   int n;
   uint ticks0;
@@ -75,8 +89,8 @@ sys_pause(void)
     n = 0;
   acquire(&tickslock);
   ticks0 = ticks;
-  while (ticks - ticks0 < n) {
-    if (killed(myproc())) {
+  while(ticks - ticks0 < n){
+    if(killed(myproc())){
       release(&tickslock);
       return -1;
     }
@@ -87,26 +101,4 @@ sys_pause(void)
   }
   release(&tickslock);
   return 0;
-}
-
-uint64
-sys_kill(void)
-{
-  int pid;
-
-  argint(0, &pid);
-  return kkill(pid);
-}
-
-// return how many clock tick interrupts have occurred
-// since start.
-uint64
-sys_uptime(void)
-{
-  uint xticks;
-
-  acquire(&tickslock);
-  xticks = ticks;
-  release(&tickslock);
-  return xticks;
 }

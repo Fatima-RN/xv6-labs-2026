@@ -103,6 +103,7 @@ extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_sync(void);
+extern uint64 sys_sleep(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -121,6 +122,7 @@ static uint64 (*syscalls[])(void) = {
   [SYS_getpid]  = sys_getpid,
   [SYS_sbrk]    = sys_sbrk,
   [SYS_pause]   = sys_pause,
+  [SYS_sleep]   sys_sleep,
   [SYS_uptime]  = sys_uptime,
   [SYS_open]    = sys_open,
   [SYS_write]   = sys_write,
