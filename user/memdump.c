@@ -39,7 +39,6 @@ main(int argc, char *argv[])
     printf("Example 5:\n");
     memdump("sccccc", (char *)&example, sizeof(example));
   } else if (argc == 2) {
-    // format in argv[1], up to 512 bytes of data from standard input.
     char data[512];
     int n = 0;
     memset(data, '\0', sizeof(data));
@@ -60,6 +59,73 @@ main(int argc, char *argv[])
 void
 memdump(char *fmt, char *data, int len)
 {
-  // Your code here.  `data` holds `len` valid bytes.
+  char *ptr = data;
+  char *end = data + len;
 
+  for(int i = 0; fmt[i] != '\0'; i++){
+    char f = fmt[i];
+    switch(f){
+    case 'i':
+      if(ptr + 4 > end){
+        printf("memdump: not enough data for 'i'\n");
+        return;
+      }
+      printf("%d\n", *(int*)ptr);
+      ptr += 4;
+      break;
+    case 'p':
+      if(ptr + 8 > end){
+        printf("memdump: not enough data for 'p'\n");
+        return;
+      }
+      {
+        uint64 val = *(uint64*)ptr;
+        for(int j = 15; j >= 0; j--){
+          int nibble = (val >> (j * 4)) & 0xf;
+          printf("%x", nibble);
+        }
+        printf("\n");
+      }
+      ptr += 8;
+      break;
+    case 'h':
+      if(ptr + 2 > end){
+        printf("memdump: not enough data for 'h'\n");
+        return;
+      }
+      printf("%d\n", *(short*)ptr);
+      ptr += 2;
+      break;
+    case 'c':
+      if(ptr + 1 > end){
+        printf("memdump: not enough data for 'c'\n");
+        return;
+      }
+      printf("%c\n", *ptr);
+      ptr += 1;
+      break;
+    case 's':
+      if(ptr + 8 > end){
+        printf("memdump: not enough data for 's'\n");
+        return;
+      }
+      {
+        char *s = *(char**)ptr;
+        printf("%s\n", s);
+      }
+      ptr += 8;
+      break;
+    case 'S':
+      {
+        for(char *p = ptr; p < end; p++){
+          if(*p == '\0')
+            break;
+          printf("%c", *p);
+        }
+        printf("\n");
+        ptr = end;
+      }
+      break;
+    }
+  }
 }
