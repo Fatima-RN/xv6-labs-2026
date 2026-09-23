@@ -152,6 +152,9 @@ UPROGS=\
 	$U/_sync\
 	$U/_freememtest\
 	$U/_sandbox\
+	$U/_interposetest\
+	$U/_secret\
+	$U/_attack\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
