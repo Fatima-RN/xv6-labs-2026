@@ -116,3 +116,20 @@ sys_freemem(void)
 {
   return kfreemem();
 }
+
+
+uint64
+sys_interpose(void)
+{
+  int mask;
+  char path[MAXPATH];
+  struct proc *p = myproc();
+
+  argint(0, &mask);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  p->interpose_mask = mask;
+  safestrcpy(p->interpose_path, path, sizeof(path));
+  return 0;
+}

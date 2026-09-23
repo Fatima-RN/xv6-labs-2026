@@ -122,6 +122,8 @@ allocproc(void)
   return 0;
 
 found:
+  p->interpose_mask = 0;
+  p->interpose_path[0] = '\0';
   p->pid = allocpid();
   p->state = USED;
 
@@ -168,6 +170,8 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->interpose_mask = 0;
+  p->interpose_path[0] = '\0';
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -254,7 +258,7 @@ growproc(int n)
 }
 
 // Create a new process, copying the parent.
-// Sets up child kernel stack to return as if from fork() system call.
+// Sets up child kernel stack to return as if from fork().
 int
 kfork(void)
 {
@@ -263,14 +267,13 @@ kfork(void)
   struct proc *p = myproc();
 
   // Allocate process.
-  if ((np = allocproc()) == 0) {
+  if((np = allocproc()) == 0){
     return -1;
   }
 
   // Copy user memory from parent to child.
-  if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
-    release(&np->lock);
     return -1;
   }
   np->sz = p->sz;
@@ -281,9 +284,12 @@ kfork(void)
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
+  // Copy sandbox interpose mask and path
+np->interpose_mask = p->interpose_mask;
+safestrcpy(np->interpose_path, p->interpose_path, sizeof(p->interpose_path));
   // increment reference counts on open file descriptors.
-  for (i = 0; i < NOFILE; i++)
-    if (p->ofile[i])
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 

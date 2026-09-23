@@ -6,14 +6,14 @@
 #include "proc.h"
 #include "syscall.h"
 #include "defs.h"
+#include "fcntl.h"
 
 // Fetch the uint64 at addr from the current process.
 int
 fetchaddr(uint64 addr, uint64 *ip)
 {
   struct proc *p = myproc();
-  if (addr >= p->sz ||
-      addr + sizeof(uint64) > p->sz) // both tests needed, in case of overflow
+  if (addr >= p->sz || addr + sizeof(uint64) > p->sz) // both tests needed, in case of overflow
     return -1;
   if (copyin(p->pagetable, p->sz, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
@@ -93,7 +93,6 @@ extern uint64 sys_chdir(void);
 extern uint64 sys_dup(void);
 extern uint64 sys_getpid(void);
 extern uint64 sys_sbrk(void);
-extern uint64 sys_pause(void);
 extern uint64 sys_uptime(void);
 extern uint64 sys_open(void);
 extern uint64 sys_write(void);
@@ -102,37 +101,57 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
-extern uint64 sys_sync(void);
 extern uint64 sys_freemem(void);
+extern uint64 sys_interpose(void);
+
+// Helper function definition BEFORE syscall()
+int
+check_path_match(struct proc *p, int num)
+{
+  if (p->interpose_path[0] == '\0' || (p->interpose_path[0] == '-' && p->interpose_path[1] == '\0'))
+    return 0;
+
+  char path[MAXPATH];
+
+  if (num == SYS_open) {
+    if (argstr(0, path, MAXPATH) >= 0) {
+      if (strncmp(path, p->interpose_path, MAXPATH) == 0)
+        return 1;
+    }
+  } else if (num == SYS_exec) {
+    if (argstr(0, path, MAXPATH) >= 0) {
+      if (strncmp(path, p->interpose_path, MAXPATH) == 0)
+        return 1;
+    }
+  }
+  return 0;
+}
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
-  // clang-format off
-  [SYS_fork]    = sys_fork,
-  [SYS_exit]    = sys_exit,
-  [SYS_wait]    = sys_wait,
-  [SYS_pipe]    = sys_pipe,
-  [SYS_read]    = sys_read,
-  [SYS_kill]    = sys_kill,
-  [SYS_exec]    = sys_exec,
-  [SYS_fstat]   = sys_fstat,
-  [SYS_chdir]   = sys_chdir,
-  [SYS_dup]     = sys_dup,
-  [SYS_getpid]  = sys_getpid,
-  [SYS_sbrk]    = sys_sbrk,
-  [SYS_pause]   = sys_pause,
-  [SYS_uptime]  = sys_uptime,
-  [SYS_open]    = sys_open,
-  [SYS_write]   = sys_write,
-  [SYS_mknod]   = sys_mknod,
-  [SYS_unlink]  = sys_unlink,
-  [SYS_link]    = sys_link,
-  [SYS_mkdir]   = sys_mkdir,
-  [SYS_close]   = sys_close,
-  [SYS_sync]    = sys_sync,
-  [SYS_freemem] sys_freemem,
-  // clang-format on
+  [SYS_fork]      = sys_fork,
+  [SYS_exit]      = sys_exit,
+  [SYS_wait]      = sys_wait,
+  [SYS_pipe]      = sys_pipe,
+  [SYS_read]      = sys_read,
+  [SYS_kill]      = sys_kill,
+  [SYS_exec]      = sys_exec,
+  [SYS_fstat]     = sys_fstat,
+  [SYS_chdir]     = sys_chdir,
+  [SYS_dup]       = sys_dup,
+  [SYS_getpid]    = sys_getpid,
+  [SYS_sbrk]      = sys_sbrk,
+  [SYS_uptime]    = sys_uptime,
+  [SYS_open]      = sys_open,
+  [SYS_write]     = sys_write,
+  [SYS_mknod]     = sys_mknod,
+  [SYS_unlink]    = sys_unlink,
+  [SYS_link]      = sys_link,
+  [SYS_mkdir]     = sys_mkdir,
+  [SYS_close]     = sys_close,
+  [SYS_freemem]   = sys_freemem,
+  [SYS_interpose] = sys_interpose,
 };
 
 void
@@ -142,12 +161,17 @@ syscall(void)
   struct proc *p = myproc();
 
   num = p->trapframe->a7;
-  if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    // Use num to lookup the system call function for num, call it,
-    // and store its return value in p->trapframe->a0
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    if ((p->interpose_mask & (1 << num)) != 0) {
+      if (!check_path_match(p, num)) {
+        p->trapframe->a0 = -1;
+        return;
+      }
+    }
     p->trapframe->a0 = syscalls[num]();
   } else {
-    printk("%d %s: unknown sys call %d\n", p->pid, p->name, num);
+    printk("%d %s: unknown sys call %d\n",
+           p->pid, p->name, num);
     p->trapframe->a0 = -1;
   }
 }
