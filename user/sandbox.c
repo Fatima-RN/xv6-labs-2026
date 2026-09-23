@@ -6,14 +6,19 @@
 int
 main(int argc, char *argv[])
 {
-  printf("--- Sandbox Test Initialized ---\n");
-  int fd = open("README", O_RDONLY);
-  if (fd < 0) {
-    printf("sandbox: open blocked or failed as expected.\n");
-  } else {
-    printf("sandbox: open succeeded with fd=%d\n", fd);
-    close(fd);
+  if(argc < 2){
+    printf("Usage: secret <token>\n");
+    exit(1);
   }
 
+  int fd = open("secret.txt", O_CREATE | O_WRONLY);
+  if(fd < 0){
+    printf("secret: failed to create secret.txt\n");
+    exit(1);
+  }
+
+  write(fd, argv[1], strlen(argv[1]));
+  write(fd, "\n", 1);
+  close(fd);
   exit(0);
 }
