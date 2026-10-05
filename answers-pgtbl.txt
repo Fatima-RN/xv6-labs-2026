@@ -1,0 +1,25 @@
+Part 1: print_pgtbl (explanation of each PTE)
+
+va 0x0 (perm 0x5B = V R X U A): user program text (code), readable, executable, user-accessible, not writable. A is set because it was accessed.
+va 0x1000 (perm 0x1B = V R X U): second page of user text, same permissions, not accessed yet so A is clear.
+va 0x2000 (perm 0x17 = V R W U): user data, readable and writable by the user, not executable.
+va 0x3000 (perm 0x07 = V R W, no U): stack guard page. It is mapped but without PTE_U, so user access faults and stack overflow is caught.
+va 0x4000 (perm 0xD7 = V R W U A D): the user stack, readable and writable, accessed and dirty.
+va 0x5000..0x9000 and the other pte 0x0 entries: not mapped (invalid), any access faults.
+va 0x3FFFFFD000 (perm 0x13 = V R U): the USYSCALL page, read-only for user, holds the pid.
+va 0x3FFFFFE000 (perm 0xC7 = V R W A D, no U): the trapframe, only the kernel can access it.
+va 0x3FFFFFF000 (perm 0x4B = V R X A, no U): the trampoline, executable code for trap entry/exit, mapped in every address space at the same address, not user-accessible.
+
+Part 2: vmprint
+
+vmprint shows the same leaf pages as print_pgtbl, plus the interior page-table pages. The top level has entries 0 (low user memory: text, data, guard, stack) and 255 (high memory: usyscall, trapframe, trampoline). The leaf permissions printed (RXU, RWU, RW, RU, RX) match the perm bits from print_pgtbl.
+
+Part 3: ugetpid
+
+Which other system calls could be made faster with the shared page?
+Calls that only return read-only per-process data without arguments, for example getppid (store the parent pid in struct usyscall). Any call that only reads kernel data that the kernel keeps updated in the shared page (for example a tick counter for uptime) could also avoid entering the kernel.
+
+Part 4: superpages
+
+Number of superpage PTEs: 95 (32 for the 64MB PLIC region, 63 for RAM from 0x80200000 to 0x88000000).
+Bottom-level pages saved: each superpage replaces a whole level-0 page table of 512 PTEs, so 95 * 512 = 48640 bottom-level PTEs, i.e. 95 page-table pages (about 380KB) are saved.
