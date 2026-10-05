@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "fs.h"
+#define printf printk
 
 /*
  * the kernel's page table.
@@ -146,15 +147,54 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
-
-#if defined(LAB_PGTBL) || defined(SOL_MMAP) || defined(SOL_COW)
-void
-vmprint(pagetable_t pagetable)
+// return the level-1 PTE for va, allocating the level-2 entry if needed
+static pte_t *
+walk_l1(pagetable_t pagetable, uint64 va)
 {
-  // your code here
+  pte_t *pte = &pagetable[PX(2, va)];
+  if (*pte & PTE_V) {
+    pagetable = (pagetable_t)PTE2PA(*pte);
+  } else {
+    if ((pagetable = (pagetable_t)kalloc()) == 0)
+      return 0;
+    memset(pagetable, 0, PGSIZE);
+    *pte = PA2PTE(pagetable) | PTE_V;
+  }
+  return &pagetable[PX(1, va)];
 }
-#endif
 
+// copy of mappages for the kernel only: uses 2MB superpages when possible
+static int
+kmappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  uint64 a = va, last = va + size;
+  pte_t *pte;
+
+  if ((va % PGSIZE) != 0 || (size % PGSIZE) != 0 || size == 0)
+    panic("kmappages");
+
+  while (a < last) {
+    if (a % SUPERPGSIZE == 0 && pa % SUPERPGSIZE == 0 &&
+        last - a >= SUPERPGSIZE) {
+      if ((pte = walk_l1(pagetable, a)) == 0)
+        return -1;
+      if (*pte & PTE_V)
+        panic("kmappages: remap");
+      *pte = PA2PTE(pa) | perm | PTE_V;
+      a += SUPERPGSIZE;
+      pa += SUPERPGSIZE;
+    } else {
+      if ((pte = walk(pagetable, a, 1)) == 0)
+        return -1;
+      if (*pte & PTE_V)
+        panic("kmappages: remap");
+      *pte = PA2PTE(pa) | perm | PTE_V;
+      a += PGSIZE;
+      pa += PGSIZE;
+    }
+  }
+  return 0;
+}
 
 // add a mapping to the kernel page table.
 // only used when booting.
@@ -162,7 +202,7 @@ vmprint(pagetable_t pagetable)
 void
 kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 {
-  if (mappages(kpgtbl, va, sz, pa, perm) != 0)
+  if (kmappages(kpgtbl, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
 
@@ -537,4 +577,44 @@ ismapped(pagetable_t pagetable, uint64 va)
   return 0;
 }
 
+#if defined(LAB_PGTBL) || defined(SOL_MMAP) || defined(SOL_COW)
+// base is the virtual address covered by the start of this table
+static void
+vmprint_level(pagetable_t pagetable, int level, uint64 base)
+{
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if ((pte & PTE_V) == 0)
+      continue;
 
+    uint64 va = base + ((uint64)i << (12 + 9 * level));
+
+    for (int d = 0; d < 3 - level; d++)
+      printk(" ..");
+
+    printk("%p: pte %p pa %p", (void *)va, (void *)pte, (void *)PTE2PA(pte));
+
+    if (pte & (PTE_R | PTE_W | PTE_X)) {
+      // leaf: print permission bits
+      printk(" ");
+      if (pte & PTE_R) printk("R");
+      if (pte & PTE_W) printk("W");
+      if (pte & PTE_X) printk("X");
+      if (pte & PTE_U) printk("U");
+      if (level == 1)  printk(" super");
+      printk("\n");
+    } else {
+      // interior PTE: recurse into the next-level table
+      printk("\n");
+      vmprint_level((pagetable_t)PTE2PA(pte), level - 1, va);
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable)
+{
+  printk("page table %p\n", (void *)pagetable);
+  vmprint_level(pagetable, 2, 0);
+}
+#endif

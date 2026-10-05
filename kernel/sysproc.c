@@ -107,10 +107,40 @@ sys_vmprint(void)
 #endif
 
 #ifdef LAB_PGTBL
-int
+uint64
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
+  uint64 va, dst;
+  int npages;
+
+  argaddr(0, &va);
+  argint(1, &npages);
+  argaddr(2, &dst);
+
+  if (npages < 0 || npages > 512)
+    return -1;
+
+  struct proc *p = myproc();
+  char buf[64];
+  int nbytes = (npages + 7) / 8;
+  memset(buf, 0, sizeof(buf));
+
+  for (int i = 0; i < npages; i++) {
+    uint64 page_va = va + (uint64)i * PGSIZE;
+    if (page_va >= MAXVA)
+      return -1;
+    pte_t *pte = walk(p->pagetable, page_va, 0);
+    if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+      return -1;
+    if (*pte & PTE_A) {
+      buf[i / 8] |= (1 << (i % 8));
+      *pte &= ~PTE_A;
+    }
+  }
+  sfence_vma();
+
+  if (copyout(p->pagetable, p->sz, dst, buf, nbytes) < 0)
+    return -1;
   return 0;
 }
 #endif
