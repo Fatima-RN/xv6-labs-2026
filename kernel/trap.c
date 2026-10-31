@@ -82,8 +82,22 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
+  // give up the CPU if this is a timer interrupt.
+  if(which_dev == 2) {
+    struct proc *p = myproc();
+    if(p && p->interval > 0 && !p->handling_alarm) {
+      p->ticks_passed++;
+      if(p->ticks_passed >= p->interval) {
+        p->ticks_passed = 0;
+        p->handling_alarm = 1;
+        // Save current trapframe state
+        p->saved_tf = *(p->trapframe);
+        // Redirect execution to user handler function
+        p->trapframe->epc = (uint64)p->handler;
+      }
+    }
     yield();
+  }
 
   prepare_return();
 

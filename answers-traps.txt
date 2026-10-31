@@ -1,0 +1,30 @@
+Question 1:
+Which registers contain arguments to functions? For example, which register holds 13 in main's call to printf?
+Answer:
+Arguments are passed in registers a0 through a7. In main's call to printf, the value 13 is held in register a2 (a0 holds the format string pointer, and a1 holds the first argument 57616).
+
+Question 2:
+Where is the call to function f in the assembly code for main? Where is the call to g?
+Answer:
+There are no explicit calls (such as jal) to functions f and g in the assembly code for main because the compiler has inlined both functions directly into main.
+
+Question 3:
+At what address is the function printf located?
+Answer:
+The printf function is located at address 0x000000000000185a (Note: check user/call.asm for the exact address generated in your local build).
+
+Question 4:
+What value is in the register ra just after the jalr to printf in main?
+Answer:
+The ra (return address) register contains the memory address of the instruction immediately following the jalr instruction in main, which is where printf will return control upon completion.
+
+Question 5:
+Code output and Big-endian question:
+Answer:
+Output: H1e10 Wodr
+If RISC-V were big-endian, you would set i to 0x726c6400 to yield the same output. You would not need to change 57616 to a different value.
+
+Question 6:
+What is printed after 'y=' in printf("x=%d y=%d", 3);? Why?
+Answer:
+A random or stale garbage value from the registers/stack is printed. This happens because the format string contains two format specifiers (%d) but only one argument (3) was provided, causing printf to read whatever residual value is present in the next argument location.
