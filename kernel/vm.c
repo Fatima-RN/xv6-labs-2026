@@ -1,12 +1,13 @@
 #include "param.h"
 #include "types.h"
 #include "memlayout.h"
-#include "elf.h"
 #include "riscv.h"
 #include "defs.h"
-#include "spinlock.h"
-#include "proc.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "buf.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -488,4 +489,28 @@ ismapped(pagetable_t pagetable, uint64 va)
     return 1;
   }
   return 0;
+}
+
+void
+vmprint_level(pagetable_t pagetable, int level)
+{
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      for(int j = 0; j < level; j++)
+        printk(".. ");
+      printk("..%d: pte %p pa %p\n", i, (void *)pte, (void *)PTE2PA(pte));
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        vmprint_level((pagetable_t)child, level + 1);
+      }
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable)
+{
+  printk("page table %p\n", pagetable);
+  vmprint_level(pagetable, 1);
 }

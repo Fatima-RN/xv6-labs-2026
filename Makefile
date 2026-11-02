@@ -209,8 +209,7 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_sync\
 	$U/_alarmtest\
-
-
+	$U/_sbrktest\
 
 
 ifeq ($(LAB),syscall)

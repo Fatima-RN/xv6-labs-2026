@@ -82,7 +82,6 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  // give up the CPU if this is a timer interrupt.
   if(which_dev == 2) {
     struct proc *p = myproc();
     if(p && p->interval > 0 && !p->handling_alarm) {
