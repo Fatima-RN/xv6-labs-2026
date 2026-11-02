@@ -5,6 +5,40 @@
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
+
+struct {
+  struct spinlock lock;
+  int count[(PHYSTOP - KERNBASE) / PGSIZE];
+} pgs_refcnt;
+
+void
+kinit_refcnt(void)
+{
+  initlock(&pgs_refcnt.lock, "pgs_refcnt");
+  acquire(&pgs_refcnt.lock);
+  for(int i = 0; i < (PHYSTOP - KERNBASE) / PGSIZE; i++)
+    pgs_refcnt.count[i] = 0;
+  release(&pgs_refcnt.lock);
+}
+
+void
+kincref(void *pa)
+{
+  acquire(&pgs_refcnt.lock);
+  pgs_refcnt.count[((uint64)pa - KERNBASE) / PGSIZE]++;
+  release(&pgs_refcnt.lock);
+}
+
+int
+kgetref(void *pa)
+{
+  int c;
+  acquire(&pgs_refcnt.lock);
+  c = pgs_refcnt.count[((uint64)pa - KERNBASE) / PGSIZE];
+  release(&pgs_refcnt.lock);
+  return c;
+}
+
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
@@ -24,9 +58,13 @@ struct {
 } kmem;
 
 void
+kinit_refcnt(void);
+
+void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  kinit_refcnt();
   freerange(end, (void *)PHYSTOP);
 }
 

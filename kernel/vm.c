@@ -1,3 +1,5 @@
+void kincref(void*);
+int kgetref(void*);
 #include "param.h"
 #include "types.h"
 #include "memlayout.h"
@@ -297,35 +299,40 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t pagetable, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
-  for (i = 0; i < sz; i += PGSIZE) {
-    if ((pte = walk(old, i, 0)) == 0)
-      continue; // page table entry hasn't been allocated
-    if ((*pte & PTE_V) == 0)
-      continue; // physical page hasn't been allocated
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte not found");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+    
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if ((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char *)pa, PGSIZE);
-    if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0) {
-      kfree(mem);
+
+    if(*pte & PTE_W){
+      *pte &= ~PTE_W;
+      *pte |= PTE_COW;
+    }
+
+    flags &= ~PTE_W;
+    flags |= PTE_COW;
+
+    if(mappages(pagetable, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
+    kincref((void*)pa);
   }
   return 0;
 
-err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+ err:
+  uvmunmap(pagetable, i, 0, 1);
   return -1;
 }
-
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
 void
