@@ -206,7 +206,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       continue;
     if (do_free) {
       uint64 pa = PTE2PA(*pte);
-      kfree((void *)pa);
+      kfree((void *)pa); // drops one reference; frees only at zero
     }
     *pte = 0;
   }
@@ -291,8 +291,9 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 
 // Given a parent process's page table, copy
 // its memory into a child's page table.
-// Copies both the page table and the
-// physical memory.
+// Copy-on-write: the child shares the parent's physical pages.
+// Writable pages are marked read-only + PTE_COW in both page tables,
+// and each shared page's reference count is incremented.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
@@ -301,7 +302,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for (i = 0; i < sz; i += PGSIZE) {
     if ((pte = walk(old, i, 0)) == 0)
@@ -309,14 +309,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if ((*pte & PTE_V) == 0)
       continue; // physical page hasn't been allocated
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if ((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char *)pa, PGSIZE);
-    if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0) {
-      kfree(mem);
-      goto err;
+
+    // writable pages become COW in both parent and child.
+    // originally read-only pages (e.g. text) stay read-only, no COW.
+    if (*pte & PTE_W) {
+      *pte = (*pte & ~PTE_W) | PTE_COW;
     }
+    flags = PTE_FLAGS(*pte);
+
+    if (mappages(new, i, PGSIZE, pa, flags) != 0)
+      goto err;
+    krefinc((void *)pa);
   }
   return 0;
 
@@ -352,17 +355,18 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
     if (va0 >= MAXVA)
       return -1;
 
-    pa0 = walkaddr(pagetable, va0);
-    if (pa0 == 0) {
+    pte = walk(pagetable, va0, 0);
+    if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0 ||
+        (*pte & PTE_W) == 0) {
+      // not mapped yet (lazy), or not writable (maybe a COW page).
+      // vmfault() handles both; it fails for genuinely read-only pages
+      // such as program text, so copyout over them still returns -1.
       if ((pa0 = vmfault(pagetable, psz, va0, 0)) == 0) {
         return -1;
       }
+    } else {
+      pa0 = PTE2PA(*pte);
     }
-
-    pte = walk(pagetable, va0, 0);
-    // forbid copyout over read-only user text pages.
-    if ((*pte & PTE_W) == 0)
-      return -1;
 
     n = PGSIZE - (dstva - va0);
     if (n > len)
@@ -451,21 +455,50 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
   }
 }
 
-// allocate and map user memory if process is referencing a page
-// that was lazily allocated in sys_sbrk().
-// returns 0 if va is invalid or already mapped, or if
-// out of physical memory, and physical address if successful.
+// Handle a page fault at user virtual address va.
+//  - if va is already mapped: the only fixable case is a write to a
+//    COW page. Allocate a private copy (or, if we are the last
+//    reference, just make the page writable again).
+//  - if va is not mapped: allocate and map a zeroed page, for pages
+//    that were lazily allocated in sys_sbrk().
+// returns 0 if va is invalid, if the fault can't be fixed, or if
+// out of physical memory; returns the physical address on success.
 uint64
 vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
 {
   uint64 mem;
+  pte_t *pte;
 
   if (va >= psz)
     return 0;
   va = PGROUNDDOWN(va);
-  if (ismapped(pagetable, va)) {
-    return 0;
+
+  pte = walk(pagetable, va, 0);
+  if (pte && (*pte & PTE_V)) {
+    // page is mapped. Only a write to a user COW page can be fixed.
+    if (read || (*pte & PTE_U) == 0 || (*pte & PTE_COW) == 0)
+      return 0;
+
+    uint64 pa = PTE2PA(*pte);
+
+    if (krefcount((void *)pa) == 1) {
+      // we are the only user left: no copy needed.
+      *pte = (*pte & ~PTE_COW) | PTE_W;
+      return pa;
+    }
+
+    mem = (uint64)kalloc();
+    if (mem == 0)
+      return 0; // out of memory: caller kills the process
+    memmove((void *)mem, (void *)pa, PGSIZE);
+
+    uint flags = (PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W;
+    *pte = PA2PTE(mem) | flags;
+    kfree((void *)pa); // drop this process's reference to the old page
+    return mem;
   }
+
+  // not mapped: lazy allocation.
   mem = (uint64)kalloc();
   if (mem == 0)
     return 0;
